@@ -131,6 +131,15 @@ func verifySignature(headerSeg, payloadSeg string, sig []byte, key any, header a
 		return nil
 	}
 
+	// A JWKS as the key resolves the concrete verification key by the header "kid"
+	// (the gem's JWKS decode path); an unmatched kid fails verification.
+	if set, ok := key.(*JWKS); ok {
+		key = set.keyForHeader(header)
+		if key == nil {
+			return verificationFailed()
+		}
+	}
+
 	s := lookupSigner(alg)
 	if s == nil {
 		return newError(ErrIncorrectAlgorithm, "Expected a different algorithm")
