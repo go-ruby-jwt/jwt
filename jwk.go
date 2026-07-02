@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/sha256"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -18,8 +19,13 @@ import (
 // JWK is a JSON Web Key (RFC 7517) for an RSA or EC public key — the export/import
 // half of the gem's JWT::JWK. It mirrors the gem's export byte-for-byte: an RSA key
 // exports {"kty":"RSA","n":..,"e":..,"kid":..}, an EC key
-// {"kty":"EC","crv":..,"x":..,"y":..,"kid":..}, and Kid is the RFC 7638 thumbprint
-// (SHA-256 of the canonical key) rendered as lowercase hex, exactly as the gem.
+// {"kty":"EC","crv":..,"x":..,"y":..,"kid":..}.
+//
+// Kid is the gem's default key id (JWK#kid), which is NOT the RFC 7638 thumbprint:
+// the gem derives it as the lowercase-hex SHA-256 of the DER of an ASN.1 SEQUENCE of
+// the key's two defining integers — (n, e) for RSA, (x, y) for EC — matching
+// JWT::JWK's key_digest byte-for-byte. The RFC 7638 thumbprint (base64url) is
+// available separately via Thumbprint.
 type JWK struct {
 	// Kty is "RSA" or "EC".
 	Kty string
@@ -65,8 +71,8 @@ func rsaJWK(pub *rsa.PublicKey) *JWK {
 	n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
 	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes())
 	j := &JWK{Kty: "RSA", N: n, E: e, key: pub}
-	// RFC 7638 canonical form for RSA is {"e":..,"kty":"RSA","n":..}.
-	j.Kid = thumbprint(fmt.Sprintf(`{"e":%q,"kty":"RSA","n":%q}`, e, n))
+	// Gem key_digest: SHA-256(DER(SEQUENCE(INTEGER n, INTEGER e))) as lowercase hex.
+	j.Kid = keyDigest(pub.N, big.NewInt(int64(pub.E)))
 	return j
 }
 
@@ -76,12 +82,24 @@ func ecJWK(pub *ecdsa.PublicKey) (*JWK, error) {
 	if err != nil {
 		return nil, err
 	}
-	x := base64.RawURLEncoding.EncodeToString(leftPad(pub.X.Bytes(), size))
-	y := base64.RawURLEncoding.EncodeToString(leftPad(pub.Y.Bytes(), size))
+	xOct := leftPad(pub.X.Bytes(), size)
+	yOct := leftPad(pub.Y.Bytes(), size)
+	x := base64.RawURLEncoding.EncodeToString(xOct)
+	y := base64.RawURLEncoding.EncodeToString(yOct)
 	j := &JWK{Kty: "EC", Crv: crv, X: x, Y: y, key: pub}
-	// RFC 7638 canonical form for EC is {"crv":..,"kty":"EC","x":..,"y":..}.
-	j.Kid = thumbprint(fmt.Sprintf(`{"crv":%q,"kty":"EC","x":%q,"y":%q}`, crv, x, y))
+	// Gem key_digest: SHA-256(DER(SEQUENCE(INTEGER x, INTEGER y))) over the fixed-
+	// width coordinate octets read as positive integers, lowercase hex.
+	j.Kid = keyDigest(new(big.Int).SetBytes(xOct), new(big.Int).SetBytes(yOct))
 	return j, nil
+}
+
+// keyDigest is the gem's default kid: the lowercase-hex SHA-256 of the DER encoding
+// of an ASN.1 SEQUENCE of the key's two defining integers. asn1.Marshal of a struct
+// of two *big.Int is total (INTEGER encoding never fails), so its error is dropped.
+func keyDigest(a, b *big.Int) string {
+	der, _ := asn1.Marshal(struct{ A, B *big.Int }{a, b})
+	sum := sha256.Sum256(der)
+	return hex.EncodeToString(sum[:])
 }
 
 // curveParams maps an elliptic.Curve to its JWA name and coordinate octet length.
@@ -98,11 +116,18 @@ func curveParams(c elliptic.Curve) (string, int, error) {
 	}
 }
 
-// thumbprint is the RFC 7638 key thumbprint: SHA-256 of the canonical JSON, as
-// lowercase hex (the gem renders it hex, not base64url).
-func thumbprint(canonical string) string {
+// Thumbprint is the RFC 7638 key thumbprint: the unpadded base64url SHA-256 of the
+// key's canonical JSON (members sorted, compact), byte-for-byte the gem's
+// JWT::JWK::Thumbprint. It is distinct from Kid (the gem's default key_digest).
+func (j *JWK) Thumbprint() string {
+	var canonical string
+	if j.Kty == "RSA" {
+		canonical = fmt.Sprintf(`{"e":%q,"kty":"RSA","n":%q}`, j.E, j.N)
+	} else {
+		canonical = fmt.Sprintf(`{"crv":%q,"kty":"EC","x":%q,"y":%q}`, j.Crv, j.X, j.Y)
+	}
 	sum := sha256.Sum256([]byte(canonical))
-	return hex.EncodeToString(sum[:])
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 // leftPad left-zero-pads b to n bytes (fixed-width coordinate encoding).

@@ -4,5 +4,6 @@
 
 # Coverage profiles produced by `go test -coverprofile` / the CI coverage gate.
 cover.out
+cov.out
 *.cover
 coverage.txt

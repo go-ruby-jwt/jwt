@@ -38,6 +38,11 @@ func TestJWKFromRSA(t *testing.T) {
 	if j.PublicKey() == nil {
 		t.Error("PublicKey nil")
 	}
+	// The RFC 7638 thumbprint is the unpadded-base64url of the same digest family
+	// (distinct from the hex Kid): non-empty, no '=' padding.
+	if tp := j.Thumbprint(); tp == "" || strings.Contains(tp, "=") {
+		t.Errorf("RSA thumbprint = %q", tp)
+	}
 	// Building from a private key reduces to the public half.
 	if _, err := NewJWK(loadRSAPrivate(t)); err != nil {
 		t.Errorf("NewJWK(priv RSA): %v", err)
@@ -65,6 +70,10 @@ func TestJWKFromEC(t *testing.T) {
 			if exp.Keys()[i] != k {
 				t.Errorf("EC export order[%d] = %s, want %s", i, exp.Keys()[i], k)
 			}
+		}
+		// EC thumbprint covers the EC branch of Thumbprint.
+		if tp := j.Thumbprint(); tp == "" {
+			t.Error("EC thumbprint empty")
 		}
 		// From a private key too.
 		if _, err := NewJWK(priv); err != nil {
