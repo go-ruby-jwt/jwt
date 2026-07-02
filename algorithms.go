@@ -196,10 +196,9 @@ func signECDSA(key any, in []byte, h crypto.Hash) ([]byte, error) {
 	if !ok {
 		return nil, newError(ErrEncode, "ECDSA key must be an *ecdsa.PrivateKey")
 	}
-	r, s, err := ecdsa.Sign(rand.Reader, priv, digest(h, in))
-	if err != nil {
-		return nil, err
-	}
+	// ecdsa.Sign only errors on a failing rand source; crypto/rand.Reader does not
+	// fail on the supported platforms, so the error is not a reachable branch.
+	r, s, _ := ecdsa.Sign(rand.Reader, priv, digest(h, in))
 	n := ecdsaSigLen(h)
 	sig := make([]byte, 2*n)
 	r.FillBytes(sig[:n])

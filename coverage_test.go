@@ -49,14 +49,14 @@ func TestDecodeArrayPayload(t *testing.T) {
 // truncated array.
 func TestDecodeJSONErrorPaths(t *testing.T) {
 	cases := []string{
-		`}`,          // decodeValue: leading '}' delim (not '{'/'[')
-		`{1:2}`,      // decodeObject: non-string key
-		`{"a":1`,     // decodeObject: missing closing '}'
-		`[1,2`,       // decodeArray: missing closing ']'
-		`{"a":}`,     // decodeObject: bad value token
-		`[}]`,        // decodeArray: bad element token
-		``,           // decodeValue: empty input (token error)
-		`{"a" 1}`,    // decodeObject: value read finds no ':' structure
+		`}`,       // decodeValue: top-level '}' → Token error
+		`{1:2}`,   // decodeObject: non-string key → Token error
+		`{"a":1`,  // decodeObject: missing closing '}'
+		`[1,2`,    // decodeArray: missing closing ']'
+		`{"a":}`,  // decodeObject: bad value token
+		`[[`,      // decodeArray: nested element decode fails → error propagates
+		``,        // decodeValue: empty input (token error)
+		`{"a" 1}`, // decodeObject: value read finds no ':' structure
 	}
 	for _, body := range cases {
 		tok := signStringPayload(t, body)

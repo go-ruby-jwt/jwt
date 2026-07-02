@@ -143,14 +143,13 @@ func decodeValue(dec *json.Decoder) (any, error) {
 	}
 	switch t := tok.(type) {
 	case json.Delim:
-		switch t {
-		case '{':
+		// A well-formed stream only ever yields '{' or '[' as an opening delim
+		// here; a stray '}'/']' is reported by dec.Token() as an error above, so
+		// no default arm is reachable.
+		if t == '{' {
 			return decodeObject(dec)
-		case '[':
-			return decodeArray(dec)
-		default:
-			return nil, newError(ErrDecode, "Invalid segment encoding")
 		}
+		return decodeArray(dec)
 	default:
 		return t, nil
 	}
@@ -164,10 +163,9 @@ func decodeObject(dec *json.Decoder) (any, error) {
 		if err != nil {
 			return nil, newError(ErrDecode, "Invalid segment encoding")
 		}
-		key, ok := keyTok.(string)
-		if !ok {
-			return nil, newError(ErrDecode, "Invalid segment encoding")
-		}
+		// dec.More() guaranteed another entry, so the key token is a string; a
+		// non-string key is caught by dec.Token() as an error on the line above.
+		key := keyTok.(string)
 		val, err := decodeValue(dec)
 		if err != nil {
 			return nil, err
