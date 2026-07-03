@@ -35,8 +35,17 @@ type JWK struct {
 	N, E string
 	// X, Y are the base64url EC coordinates (EC only).
 	X, Y string
-	// Kid is the RFC 7638 thumbprint of the key.
+	// Kid is the key id. For a JWK built locally with NewJWK it is the gem's
+	// default key_digest (see below); for a JWK read from JSON with ParseJWK /
+	// ParseJWKS it is the provider-assigned "kid" carried on the wire, used to
+	// select the key by JWKS.Find / JWKS.Select.
 	Kid string
+	// Alg is the intended JWS algorithm ("RS256", "ES256", …) when the JWK
+	// declares one, or "" otherwise. Only populated by ParseJWK / ParseJWKS.
+	Alg string
+	// Use is the intended public-key use ("sig"/"enc") when declared, or "".
+	// Only populated by ParseJWK / ParseJWKS.
+	Use string
 
 	key any // the parsed crypto.PublicKey, cached for verification
 }
@@ -180,10 +189,13 @@ func (s *JWKS) Find(kid string) *JWK {
 }
 
 // keyForHeader resolves the verification key for a token header from the set: it
-// reads the header "kid" and returns that JWK's public key, or nil if unmatched.
+// reads the header "kid" and "alg" and delegates to Select, returning the matched
+// JWK's public key, or nil when no key resolves (an unmatched kid, or an ambiguous
+// kid-less set).
 func (s *JWKS) keyForHeader(header any) any {
 	kid, _ := headerString(header, "kid")
-	if jwk := s.Find(kid); jwk != nil {
+	alg, _ := headerString(header, "alg")
+	if jwk, err := s.Select(kid, alg); err == nil {
 		return jwk.key
 	}
 	return nil

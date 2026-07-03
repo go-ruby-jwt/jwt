@@ -62,6 +62,10 @@ var (
 	ErrMissingRequiredClaim = newParent("JWT::MissingRequiredClaim", ErrDecode)
 	// ErrBase64Decode is JWT::Base64DecodeError — a segment was not valid base64url.
 	ErrBase64Decode = newParent("JWT::Base64DecodeError", ErrDecode)
+	// ErrJWK is JWT::JWKError — a JWK/JWKS could not be parsed or materialised into
+	// a usable public key (malformed JSON, missing or bad key material, an
+	// unsupported key type or curve). Like the gem's JWKError it is a DecodeError.
+	ErrJWK = newParent("JWT::JWKError", ErrDecode)
 )
 
 // newParent builds a sentinel whose Is chain reaches parent, so the family-level
