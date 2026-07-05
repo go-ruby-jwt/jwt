@@ -109,6 +109,14 @@ func TestParseJWKS(t *testing.T) {
 	if set.Find("nope") != nil {
 		t.Error("Find miss")
 	}
+	// Keys returns the members in document order for a consumer to adapt.
+	ks := set.Keys()
+	if len(ks) != 2 || ks[0].Kid != "k1" || ks[1].Kid != "e1" {
+		t.Errorf("Keys order = %+v", ks)
+	}
+	if ks[0].Alg != "RS256" || ks[0].Use != "sig" || ks[0].PublicKey() == nil {
+		t.Errorf("adapted fields = %+v", ks[0])
+	}
 }
 
 // TestParseJWKSSkipsUnknownKty imports a set mixing an "oct" (symmetric) key with an

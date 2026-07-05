@@ -178,6 +178,12 @@ type JWKS struct {
 // NewJWKS builds a key set.
 func NewJWKS(keys ...*JWK) *JWKS { return &JWKS{keys: keys} }
 
+// Keys returns the set's keys in document order. The returned slice must not be
+// mutated; it lets a consumer (e.g. an OIDC key set) adapt each imported JWK —
+// its provider-assigned kid/alg/use and materialised public key — into its own
+// representation.
+func (s *JWKS) Keys() []*JWK { return s.keys }
+
 // Find returns the JWK with the given kid, or nil.
 func (s *JWKS) Find(kid string) *JWK {
 	for _, k := range s.keys {
