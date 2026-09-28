@@ -141,11 +141,19 @@ func decodeValue(dec *json.Decoder) (any, error) {
 	if err != nil {
 		return nil, newError(ErrDecode, "Invalid segment encoding")
 	}
+	return valueFromToken(dec, tok)
+}
+
+// valueFromToken interprets a token the caller has already read. decodeArray
+// needs this split: it must look at the token to see whether it is the closing
+// ']' before deciding to treat it as a value, and a token cannot be pushed back
+// into a json.Decoder.
+func valueFromToken(dec *json.Decoder, tok json.Token) (any, error) {
 	switch t := tok.(type) {
 	case json.Delim:
 		// A well-formed stream only ever yields '{' or '[' as an opening delim
-		// here; a stray '}'/']' is reported by dec.Token() as an error above, so
-		// no default arm is reachable.
+		// here; a stray '}'/']' is reported by dec.Token() as an error in the
+		// caller, so no default arm is reachable.
 		if t == '{' {
 			return decodeObject(dec)
 		}
@@ -158,38 +166,56 @@ func decodeValue(dec *json.Decoder) (any, error) {
 // decodeObject reads an object body (the opening '{' already consumed) into order.
 func decodeObject(dec *json.Decoder) (any, error) {
 	m := NewOrderedMap()
-	for dec.More() {
-		keyTok, err := dec.Token()
+	for {
+		// ⛔ Read to the closing delimiter rather than looping on dec.More().
+		// More() changed meaning between Go 1.26 and 1.27 on a TRUNCATED
+		// stream: 1.26 answers false, so the error surfaces from a trailing
+		// Token() below the loop; 1.27 answers true, so it surfaces from
+		// inside. Same verdict for the caller either way -- ErrDecode -- but
+		// two different statements report it, and only one of them runs on any
+		// given toolchain. That is how a 100% gate went red on a pull request
+		// that bumped ruby.
+		//
+		// Reading the delimiter directly needs no More() at all: one error
+		// site, reached on both toolchains, and no dependence on a question
+		// whose answer moved.
+		tok, err := dec.Token()
 		if err != nil {
 			return nil, newError(ErrDecode, "Invalid segment encoding")
 		}
-		// dec.More() guaranteed another entry, so the key token is a string; a
-		// non-string key is caught by dec.Token() as an error on the line above.
-		key := keyTok.(string)
+		if d, ok := tok.(json.Delim); ok && d == '}' {
+			return m, nil
+		}
+		// A bare assertion, as before: encoding/json rejects a non-string key
+		// in the Token() call above, so anything reaching here is a string. A
+		// checked assertion was tried and removed -- its error arm is
+		// unreachable, and an unreachable arm is a hole in a 100% gate that no
+		// test can ever fill.
+		key := tok.(string)
 		val, err := decodeValue(dec)
 		if err != nil {
 			return nil, err
 		}
 		m.Set(key, val)
 	}
-	if _, err := dec.Token(); err != nil { // consume '}'
-		return nil, newError(ErrDecode, "Invalid segment encoding")
-	}
-	return m, nil
 }
 
 // decodeArray reads an array body (the opening '[' already consumed).
 func decodeArray(dec *json.Decoder) (any, error) {
 	arr := []any{}
-	for dec.More() {
-		v, err := decodeValue(dec)
+	for {
+		// The same reason as decodeObject: no dec.More(), one error site.
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, newError(ErrDecode, "Invalid segment encoding")
+		}
+		if d, ok := tok.(json.Delim); ok && d == ']' {
+			return arr, nil
+		}
+		v, err := valueFromToken(dec, tok)
 		if err != nil {
 			return nil, err
 		}
 		arr = append(arr, v)
 	}
-	if _, err := dec.Token(); err != nil { // consume ']'
-		return nil, newError(ErrDecode, "Invalid segment encoding")
-	}
-	return arr, nil
 }
